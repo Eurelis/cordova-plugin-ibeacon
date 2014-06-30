@@ -113,8 +113,16 @@ public class IBeaconPlugin extends CordovaPlugin implements IBeaconConsumer {
     //--------------------------------------------------------------------------
 
     private void isIbeaconAvailable(JSONObject arguments, CallbackContext callbackContext) {
-    	int result = this.iBeaconManager.checkAvailability()?1:0;
-		callbackContext.success(result);
+    	int result = 0;
+    	try {
+    		result = this.iBeaconManager.checkAvailability()?1:0;
+    	} catch (Exception e) {};
+    	
+    	JSONObject data = new JSONObject();
+        data.put("isAvailable", (result==1)?true:false);
+        					
+        PluginResult result = new PluginResult(PluginResult.Status.OK,data);
+        callbackContext.sendPluginResult(result);
 	}
 
 	private void isAdvertising(JSONObject arguments, CallbackContext callbackContext) {
