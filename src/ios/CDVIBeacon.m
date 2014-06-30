@@ -34,6 +34,8 @@
         NSString *rangingCallbackId;
         NSString *advertisingCallbackId;
         
+        NSString *ibeaconAvailableCallbackId;
+        
         CLBeaconRegion *_advertisedBeaconRegion; // The beacon object provided by the caller, used to construct the _peripheralData object.
         NSDictionary *_peripheralData;
         
@@ -83,6 +85,27 @@
         return;
     }
     [self onReadyToStartAdvertising];
+    
+    
+    if (ibeaconAvailableCallbackId) {
+    // si on connait le callback on vérifie l'état
+    	NSNumber *isAvailable = @NO;
+    	if (NSFoundationVersionNumber > NSFoundationVersionNumber_iOS_6_1) {
+			if (_peripheralManager.state == CBCentralManagerStatePoweredOn) {
+				isAvailable = [NSNumber numberWithBool:[CLLocationManager isRangingAvailable]];
+			}
+		}
+	
+    	[self.commandDelegate runInBackground:^{
+        	NSMutableDictionary* callbackData = [[NSMutableDictionary alloc]init];
+        	[callbackData setObject:isAvailable forKey:@"isAvailable"];
+        
+        	CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:callbackData];
+        	[pluginResult setKeepCallbackAsBool:YES];
+        
+        	[self.commandDelegate sendPluginResult:pluginResult callbackId:ibeaconAvailableCallbackId];
+    	}];
+    }
 }
 
 - (void)peripheralManagerDidStartAdvertising:(CBPeripheralManager *)peripheral error:(NSError *)error{
@@ -277,13 +300,34 @@
     NSLog(@"[IBeacon Plugin] Stopped ranging successfully.");
 }
 
+- (void)isIbeaconAvailable:(CDVInvokedUrlCommand*)command {
+	ibeaconAvailableCallbackId = command.callbackId;
+
+	NSNumber *isAvailable = @NO;
+	
+	if (NSFoundationVersionNumber > NSFoundationVersionNumber_iOS_6_1) {
+		if (_peripheralManager.state == CBCentralManagerStatePoweredOn) {
+			isAvailable = [NSNumber numberWithBool:[CLLocationManager isRangingAvailable]];
+		}
+	}
+	
+    [self.commandDelegate runInBackground:^{
+        NSMutableDictionary* callbackData = [[NSMutableDictionary alloc]init];
+        [callbackData setObject:isAvailable forKey:@"isAvailable"];
+        
+        CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:callbackData];
+        [pluginResult setKeepCallbackAsBool:YES];
+        
+        [self.commandDelegate sendPluginResult:pluginResult callbackId:ibeaconAvailableCallbackId];
+    }];
+}
+
 # pragma mark Utilities
 
 - (NSString*) nameOfRegionState:(CLRegionState)state {
     switch (state) {
         case CLRegionStateInside:
             return @"CLRegionStateInside";
-            break;
         case CLRegionStateOutside:
             return @"CLRegionStateOutside";
         case CLRegionStateUnknown:

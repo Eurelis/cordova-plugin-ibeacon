@@ -190,6 +190,13 @@ IBeacon.prototype.isAdvertising = function (onSuccess) {
     exec(onSuccess, null, "IBeacon", 'isAdvertising', []);
 };
 
+IBeacon.prototype.isIbeaconAvailable = function (onSuccess) {
+    if (typeof(onSuccess) !== 'function') {
+        throw new TypeError('The onSuccess parameter has to be a callback function.');
+    }
+    exec(onSuccess, null, "IBeacon", 'isIbeaconAvailable', []);
+};
+
 /**
  * Starts advertising the current device as an iBeacon. Backed by the CoreBluetooth framework of iOS.
  * 

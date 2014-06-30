@@ -99,6 +99,8 @@ public class IBeaconPlugin extends CordovaPlugin implements IBeaconConsumer {
         	startRangingBeaconsInRegion(args.optJSONObject(0), callbackContext);
         } else if (action.equals("stopRangingBeaconsInRegion")) {
         	stopRangingBeaconsInRegion(args.optJSONObject(0), callbackContext);
+        } else if (action.equals("isIbeaconAvailable")) {
+        	isIbeaconAvailable(args.optJSONObject(0), callbackContext);
         }
         else {
             return false;
@@ -110,7 +112,12 @@ public class IBeaconPlugin extends CordovaPlugin implements IBeaconConsumer {
     // LOCAL METHODS
     //--------------------------------------------------------------------------
 
-    private void isAdvertising(JSONObject arguments, CallbackContext callbackContext) {
+    private void isIbeaconAvailable(JSONObject arguments, CallbackContext callbackContext) {
+    	int result = this.iBeaconManager.checkAvailability()?1:0;
+		callbackContext.success(result);
+	}
+
+	private void isAdvertising(JSONObject arguments, CallbackContext callbackContext) {
     	Log.w(TAG, "'isAdvertising' not supported on Android");
         callbackContext.error("Advertising mode not supported on Android");
     }
