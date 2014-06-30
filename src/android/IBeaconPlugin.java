@@ -29,9 +29,11 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import android.Manifest;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
+import android.content.pm.PackageManager;
 import android.os.RemoteException;
 import android.util.Log;
 
@@ -113,13 +115,23 @@ public class IBeaconPlugin extends CordovaPlugin implements IBeaconConsumer {
     //--------------------------------------------------------------------------
 
     private void isIbeaconAvailable(JSONObject arguments, CallbackContext callbackContext) {
-    	int result = 0;
+    	boolean available = false;
     	try {
-    		result = this.iBeaconManager.checkAvailability()?1:0;
+    		Context ctx = this.getApplicationContext();
+    		if (ctx.checkCallingOrSelfPermission(Manifest.permission.BLUETOOTH) == PackageManager.PERMISSION_GRANTED 
+    				&& 
+    			ctx.checkCallingOrSelfPermission(Manifest.permission.BLUETOOTH_ADMIN) == PackageManager.PERMISSION_GRANTED) {
+    			available = this.iBeaconManager.checkAvailability();
+    		}
+    		
     	} catch (Exception e) {};
     	
     	JSONObject data = new JSONObject();
-        data.put("isAvailable", (result==1)?true:false);
+        try {
+			data.put("isAvailable", available);
+		} catch (JSONException e) {
+			e.printStackTrace();
+		}
         					
         PluginResult result = new PluginResult(PluginResult.Status.OK,data);
         callbackContext.sendPluginResult(result);
