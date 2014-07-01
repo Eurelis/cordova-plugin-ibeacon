@@ -18,7 +18,11 @@
 */
 package org.apache.cordova.ibeacon;
 
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
 
 import org.apache.cordova.CordovaWebView;
 import org.apache.cordova.CallbackContext;
@@ -30,8 +34,12 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import android.Manifest;
+import android.app.Activity;
+import android.bluetooth.BluetoothAdapter;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
 import android.os.RemoteException;
@@ -64,7 +72,10 @@ public class IBeaconPlugin extends CordovaPlugin implements IBeaconConsumer {
     public void initialize(CordovaInterface cordova, CordovaWebView webView) {
         super.initialize(cordova, webView);
 
-        iBeaconManager = IBeaconManager.getInstanceForApplication(cordova.getActivity());
+        Activity activity = cordova.getActivity();
+        activity.registerReceiver(mReceiver, new IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED));
+        
+        iBeaconManager = IBeaconManager.getInstanceForApplication(activity);
         iBeaconManager.bind(this);
     }
     
@@ -74,7 +85,7 @@ public class IBeaconPlugin extends CordovaPlugin implements IBeaconConsumer {
     @Override
     public void onDestroy() {
     	iBeaconManager.unBind(this);
-    	
+    	cordova.getActivity().unregisterReceiver(mReceiver);
     	super.onDestroy(); 
     }
 
@@ -110,32 +121,70 @@ public class IBeaconPlugin extends CordovaPlugin implements IBeaconConsumer {
         return true;
     }
     
+    
+    private CallbackContext isIbeaconAvailableCallbackContext;
     //--------------------------------------------------------------------------
     // LOCAL METHODS
     //--------------------------------------------------------------------------
-
-    private void isIbeaconAvailable(JSONObject arguments, CallbackContext callbackContext) {
+    private Boolean sentAvailability = null;
+    
+    private void sendIsIbeaconAvailableState(CallbackContext callbackContext) {
     	boolean available = false;
     	try {
     		Context ctx = this.getApplicationContext();
     		if (ctx.checkCallingOrSelfPermission(Manifest.permission.BLUETOOTH) == PackageManager.PERMISSION_GRANTED 
     				&& 
     			ctx.checkCallingOrSelfPermission(Manifest.permission.BLUETOOTH_ADMIN) == PackageManager.PERMISSION_GRANTED) {
-    			available = this.iBeaconManager.checkAvailability();
+    			
+    			BluetoothAdapter mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+    		    if (mBluetoothAdapter != null && mBluetoothAdapter.isEnabled()) {
+    		    	available = this.iBeaconManager.checkAvailability();
+    		    }
     		}
     		
     	} catch (Exception e) {};
     	
-    	JSONObject data = new JSONObject();
-        try {
-			data.put("isAvailable", available);
-		} catch (JSONException e) {
-			e.printStackTrace();
-		}
+    	if (sentAvailability == null || sentAvailability != available) {
+    		JSONObject data = new JSONObject();
+    		try {
+    			data.put("isAvailable", available);
+    		} catch (JSONException e) {
+    			e.printStackTrace();
+    		}
         					
-        PluginResult result = new PluginResult(PluginResult.Status.OK,data);
-        callbackContext.sendPluginResult(result);
+    		PluginResult result = new PluginResult(PluginResult.Status.OK,data);
+    		result.setKeepCallback(true);
+    	
+    		callbackContext.sendPluginResult(result);
+    		sentAvailability = available;
+    	}
+    };
+    
+    private final BroadcastReceiver mReceiver = new BroadcastReceiver() {
+
+		@Override
+		public void onReceive(Context ctx, Intent intent) {
+			if (isIbeaconAvailableCallbackContext != null) {
+				final String action = intent.getAction();
+				if (action.equals(BluetoothAdapter.ACTION_STATE_CHANGED)) {
+					sendIsIbeaconAvailableState(isIbeaconAvailableCallbackContext);
+				}
+				
+			}
+			
+		}
+    	
+    	
+    };
+    
+    
+    private void isIbeaconAvailable(JSONObject arguments, CallbackContext callbackContext) {
+    	this.isIbeaconAvailableCallbackContext = callbackContext;
+    	this.sendIsIbeaconAvailableState(callbackContext);
 	}
+    
+    
+    
 
 	private void isAdvertising(JSONObject arguments, CallbackContext callbackContext) {
     	Log.w(TAG, "'isAdvertising' not supported on Android");
@@ -248,7 +297,27 @@ public class IBeaconPlugin extends CordovaPlugin implements IBeaconConsumer {
                     	try {
                     		JSONObject data = new JSONObject();
                     		JSONArray beaconData = new JSONArray();
-                    		for (IBeacon beacon : iBeacons) {
+                    		List<IBeacon> sortedBeacons = new ArrayList<IBeacon>(iBeacons);
+                    		
+                    		Collections.sort(sortedBeacons, new Comparator<IBeacon>() {
+								@Override
+								public int compare(IBeacon b1, IBeacon b2) {
+									if (b1.getProximity() == IBeacon.PROXIMITY_UNKNOWN && b2.getProximity() != IBeacon.PROXIMITY_UNKNOWN) {
+										return 1;
+									}
+									else if (b1.getProximity() != IBeacon.PROXIMITY_UNKNOWN && b2.getProximity() == IBeacon.PROXIMITY_UNKNOWN) {
+										return -1;
+									}
+									else if (b1.getProximity() != b2.getProximity()) {
+										return (b1.getProximity() < b2.getProximity())?-1:1;
+									}
+								
+									return (b1.getRssi() > b2.getRssi())?-1:1;
+								}
+                    			
+                    		});
+                    		
+                    		for (IBeacon beacon : sortedBeacons) {
                     			beaconData.put(mapOfBeacon(beacon));
                     		}
                     		

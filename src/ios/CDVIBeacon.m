@@ -29,35 +29,37 @@
 #import "CDVIBeacon.h"
 
 @implementation CDVIBeacon
-    {
-        NSString *monitoringCallbackId;
-        NSString *rangingCallbackId;
-        NSString *advertisingCallbackId;
-        
-        NSString *ibeaconAvailableCallbackId;
-        
-        CLBeaconRegion *_advertisedBeaconRegion; // The beacon object provided by the caller, used to construct the _peripheralData object.
-        NSDictionary *_peripheralData;
-        
-        CLLocationManager *_locationManager;
-        CBPeripheralManager * _peripheralManager;
-    }
+{
+    NSString *monitoringCallbackId;
+    NSString *rangingCallbackId;
+    NSString *advertisingCallbackId;
     
+    NSString *ibeaconAvailableCallbackId;
+    
+    CLBeaconRegion *_advertisedBeaconRegion; // The beacon object provided by the caller, used to construct the _peripheralData object.
+    NSDictionary *_peripheralData;
+    
+    CLLocationManager *_locationManager;
+    CBPeripheralManager * _peripheralManager;
+    
+    NSNumber *sentAvailability;
+}
+
 # pragma mark CDVPlugin
-    
+
 - (void)pluginInitialize
-    {
-        NSLog(@"[IBeacon Plugin] pluginInitialize()");
-        
-        _locationManager = [[CLLocationManager alloc] init];
-        _locationManager.delegate = self;
-        
-        _peripheralManager = [[CBPeripheralManager alloc] initWithDelegate:self queue:nil];
-        
-        
-        [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(pageDidLoad:) name:CDVPageDidLoadNotification object:self.webView];
-    }
+{
+    NSLog(@"[IBeacon Plugin] pluginInitialize()");
     
+    _locationManager = [[CLLocationManager alloc] init];
+    _locationManager.delegate = self;
+    
+    _peripheralManager = [[CBPeripheralManager alloc] initWithDelegate:self queue:nil];
+    
+    
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(pageDidLoad:) name:CDVPageDidLoadNotification object:self.webView];
+}
+
 - (void) pageDidLoad: (NSNotification*)notification{
     NSLog(@"[IBeacon Plugin] pageDidLoad()");
 }
@@ -74,12 +76,14 @@
     NSLog(@"[IBeacon Plugin] Starting the actual advertising of %@", _peripheralData);
     [_peripheralManager startAdvertising:_peripheralData];
 }
-    
+
 # pragma mark CBPeripheralManagerDelegate
-    
-- (void) peripheralManagerDidUpdateState:(CBPeripheralManager *)peripheral {
+
+- (void)peripheralManagerDidUpdateState:(CBPeripheralManager *)peripheral {
     NSString *stateName = [self nameOfPeripherialState:peripheral.state];
     NSLog(@"[IBeacon Plugin] peripheralManagerDidUpdateState() state: %@", stateName);
+    
+    [self sendAvailability];
     
     if (peripheral.state != CBPeripheralManagerStatePoweredOn) {
         return;
@@ -87,25 +91,6 @@
     [self onReadyToStartAdvertising];
     
     
-    if (ibeaconAvailableCallbackId) {
-    // si on connait le callback on vérifie l'état
-    	NSNumber *isAvailable = @NO;
-    	if (NSFoundationVersionNumber > NSFoundationVersionNumber_iOS_6_1) {
-			if (_peripheralManager.state == CBCentralManagerStatePoweredOn) {
-				isAvailable = [NSNumber numberWithBool:[CLLocationManager isRangingAvailable]];
-			}
-		}
-	
-    	[self.commandDelegate runInBackground:^{
-        	NSMutableDictionary* callbackData = [[NSMutableDictionary alloc]init];
-        	[callbackData setObject:isAvailable forKey:@"isAvailable"];
-        
-        	CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:callbackData];
-        	[pluginResult setKeepCallbackAsBool:YES];
-        
-        	[self.commandDelegate sendPluginResult:pluginResult callbackId:ibeaconAvailableCallbackId];
-    	}];
-    }
 }
 
 - (void)peripheralManagerDidStartAdvertising:(CBPeripheralManager *)peripheral error:(NSError *)error{
@@ -120,7 +105,7 @@
     NSLog(@"[IBeacon Plugin] Sending plugin callback with callbackId: %@", advertisingCallbackId);
     [self.commandDelegate runInBackground:^{
         NSMutableDictionary* callbackData = [[NSMutableDictionary alloc]init];
-    
+        
         CDVCommandStatus status = CDVCommandStatus_OK;
         if (error) {
             NSLog(@"Error advertising: %@", [error localizedDescription]);
@@ -131,17 +116,17 @@
         }
         
         [callbackData setObject:stateName forKey:@"state"];
-       
+        
         CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:status messageAsDictionary:callbackData];
         [pluginResult setKeepCallbackAsBool:YES];
         
         [self.commandDelegate sendPluginResult:pluginResult callbackId:advertisingCallbackId];
     }];
 }
-    
-    
+
+
 # pragma mark CLLocationManagerDelegate
-    
+
 - (void)locationManager:(CLLocationManager *)manager didDetermineState:(CLRegionState)state forRegion:(CLRegion *)region
 {
     if(state == CLRegionStateInside) {
@@ -168,7 +153,7 @@
         [self.commandDelegate sendPluginResult:pluginResult callbackId:monitoringCallbackId];
     }];
 }
-    
+
 - (void)locationManager:(CLLocationManager *)manager didRangeBeacons:(NSArray *)beacons inRegion:(CLBeaconRegion *)region
 {
     NSLog(@"[IBeacon Plugin] didRangeBeacons() Beacons:");
@@ -194,7 +179,45 @@
         [self.commandDelegate sendPluginResult:pluginResult callbackId:rangingCallbackId];
     }];
 }
+
+- (void)locationManager:(CLLocationManager *)manager didChangeAuthorizationStatus:(CLAuthorizationStatus)status {
+    [self sendAvailability];
     
+}
+
+#pragma mark - Availability
+
+- (void)sendAvailability {
+    if (ibeaconAvailableCallbackId) {
+        NSNumber *isAvailable = @NO;
+	
+        if (NSFoundationVersionNumber > NSFoundationVersionNumber_iOS_6_1) {
+            if (_peripheralManager.state == CBCentralManagerStatePoweredOn) {
+                if ([CLLocationManager locationServicesEnabled] && [CLLocationManager authorizationStatus] == kCLAuthorizationStatusAuthorized) {
+                    isAvailable = [NSNumber numberWithBool:[CLLocationManager isRangingAvailable]];
+                }
+            }
+        }
+        
+        if (!sentAvailability || ![isAvailable isEqualToNumber:sentAvailability]) {
+            [self.commandDelegate runInBackground:^{
+                NSMutableDictionary* callbackData = [[NSMutableDictionary alloc]init];
+                [callbackData setObject:isAvailable forKey:@"isAvailable"];
+        
+                CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:callbackData];
+                [pluginResult setKeepCallbackAsBool:YES];
+        
+                [self.commandDelegate sendPluginResult:pluginResult callbackId:ibeaconAvailableCallbackId];
+            }];
+            
+            sentAvailability = isAvailable;
+        }
+        
+    }
+    
+}
+
+
 # pragma mark Exposed Javascript API
 
 - (void) isAdvertising:(CDVInvokedUrlCommand *)command {
@@ -250,7 +273,7 @@
         [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
     }];
 }
-    
+
 - (void)startMonitoringForRegion: (CDVInvokedUrlCommand*)command {
     NSLog(@"[IBeacon Plugin] startMonitoringForRegion() %@", command.arguments);
     
@@ -265,7 +288,7 @@
     
     NSLog(@"[IBeacon Plugin] started monitoring successfully.");
 }
-    
+
 - (void)stopMonitoringForRegion: (CDVInvokedUrlCommand*)command {
     NSLog(@"[IBeacon Plugin] stopMonitoringForRegion() %@", command.arguments);
     CLBeaconRegion* beaconRegion = [self parse:[command.arguments objectAtIndex: 0]];
@@ -276,7 +299,7 @@
     [_locationManager stopMonitoringForRegion:beaconRegion];
     NSLog(@"[IBeacon Plugin] stopped monitoring successfully.");
 }
-    
+
 - (void)startRangingBeaconsInRegion: (CDVInvokedUrlCommand*)command {
     NSLog(@"[IBeacon Plugin] startRangingBeaconsInRegion() %@", command.arguments);
     CLBeaconRegion* beaconRegion = [self parse:[command.arguments objectAtIndex: 0]];
@@ -288,7 +311,7 @@
     [_locationManager startRangingBeaconsInRegion:beaconRegion];
     NSLog(@"[IBeacon Plugin] Started ranging successfully.");
 }
-    
+
 - (void)stopRangingBeaconsInRegion: (CDVInvokedUrlCommand*)command {
     NSLog(@"[IBeacon Plugin] stopRangingBeaconsInRegion() %@", command.arguments);
     CLBeaconRegion* beaconRegion = [self parse:[command.arguments objectAtIndex: 0]];
@@ -302,24 +325,7 @@
 
 - (void)isIbeaconAvailable:(CDVInvokedUrlCommand*)command {
 	ibeaconAvailableCallbackId = command.callbackId;
-
-	NSNumber *isAvailable = @NO;
-	
-	if (NSFoundationVersionNumber > NSFoundationVersionNumber_iOS_6_1) {
-		if (_peripheralManager.state == CBCentralManagerStatePoweredOn) {
-			isAvailable = [NSNumber numberWithBool:[CLLocationManager isRangingAvailable]];
-		}
-	}
-	
-    [self.commandDelegate runInBackground:^{
-        NSMutableDictionary* callbackData = [[NSMutableDictionary alloc]init];
-        [callbackData setObject:isAvailable forKey:@"isAvailable"];
-        
-        CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:callbackData];
-        [pluginResult setKeepCallbackAsBool:YES];
-        
-        [self.commandDelegate sendPluginResult:pluginResult callbackId:ibeaconAvailableCallbackId];
-    }];
+    [self sendAvailability];
 }
 
 # pragma mark Utilities
@@ -341,18 +347,18 @@
 - (NSDictionary*) mapOfRegion: (CLRegion*) region {
     NSMutableDictionary* dict;
     
-     // identifier
-     if (region.identifier != nil) {
-         [dict setObject:region.identifier forKey:@"identifier"];
-     }
-
-     if ([region isKindOfClass:[CLBeaconRegion class]]) {
-         CLBeaconRegion* beaconRegion = (CLBeaconRegion*) region;
-         return [[NSMutableDictionary alloc] initWithDictionary:[self mapOfBeaconRegion:beaconRegion]];
-     } else {
-         dict = [[NSMutableDictionary alloc] init];
-     }
-
+    // identifier
+    if (region.identifier != nil) {
+        [dict setObject:region.identifier forKey:@"identifier"];
+    }
+    
+    if ([region isKindOfClass:[CLBeaconRegion class]]) {
+        CLBeaconRegion* beaconRegion = (CLBeaconRegion*) region;
+        return [[NSMutableDictionary alloc] initWithDictionary:[self mapOfBeaconRegion:beaconRegion]];
+    } else {
+        dict = [[NSMutableDictionary alloc] init];
+    }
+    
     // radius
     NSNumber* radius = [[NSNumber alloc] initWithDouble:region.radius ];
     [dict setObject:radius forKey:@"radius"];
@@ -372,11 +378,11 @@
     
     NSMutableDictionary* dict = [[NSMutableDictionary alloc] init];
     [dict setObject:region.proximityUUID.UUIDString forKey:@"uuid"];
-
+    
     if (region.major != nil) {
         [dict setObject:region.major forKey:@"major"];
     }
-
+    
     if (region.minor != nil) {
         [dict setObject:region.minor forKey:@"minor"];
     }
@@ -429,19 +435,19 @@
 
 - (CLBeaconRegion *) parse :(NSDictionary*) regionArguments {
     CLBeaconRegion *beaconRegion;
-
+    
     @try {
         NSString* uuidString = [regionArguments objectForKey:@"uuid"];
         NSUUID* uuid = [[NSUUID alloc] initWithUUIDString:uuidString];
-
+        
         id majorAsId = [regionArguments objectForKey:@"major"];
         id minorAsId = [regionArguments objectForKey:@"minor"];
-
+        
         NSString* identifier = [regionArguments objectForKey:@"identifier"];
         BOOL notifyEntryStateOnDisplay = [[regionArguments objectForKey:@"notifyEntryStateOnDisplay"] boolValue];
-
+        
         NSLog(@"[IBeacon Plugin] Creating Beacon uuid: %@, major: %@, minor: %@, identifier: %@", uuid, majorAsId, minorAsId, identifier);
-
+        
         BOOL majorDefined = majorAsId != [NSNull null];
         BOOL minorDefined = minorAsId != [NSNull null];
         if (!majorDefined && !minorDefined) {
@@ -456,7 +462,7 @@
         } else {
             NSLog(@"[IBeacon Plugin] Error, incorrect parameter combination. Minor passed but without a major.");
         }
-
+        
         if (beaconRegion != nil) {
             NSLog(@"[IBeacon Plugin] Parsing CLBeaconRegion OK: %@", beaconRegion.debugDescription);
         } else {
