@@ -193,16 +193,17 @@
                 
                 if (!previousDate || [date timeIntervalSinceDate:previousDate] > [delay longValue]) {
                     
-                    if ([application applicationState] == UIApplicationStateBackground) {
-                        UILocalNotification *localNotification = [[UILocalNotification alloc] init];
-                        localNotification.alertBody = name;
-                        localNotification.userInfo = @{@"RoomNumber": @([roomNumber intValue]), @"Identifier":identifier};
-                        [application presentLocalNotificationNow:localNotification];
-                    }
+                    UILocalNotification *localNotification = [[UILocalNotification alloc] init];
+                    localNotification.alertBody = name;
+                    localNotification.userInfo = @{@"RoomNumber": @([roomNumber intValue]), @"Identifier":identifier};
+                    [application presentLocalNotificationNow:localNotification];
+                    
+                    [defaults setObject:date forKey:lastDateKey];
                 }
             }
-            
-            [defaults setObject:date forKey:lastDateKey];
+            else {
+                [defaults setObject:date forKey:lastDateKey];
+            }
             
         }
         
