@@ -114,6 +114,8 @@ public class IBeaconPlugin extends CordovaPlugin implements IBeaconConsumer {
         	stopRangingBeaconsInRegion(args.optJSONObject(0), callbackContext);
         } else if (action.equals("isIbeaconAvailable")) {
         	isIbeaconAvailable(args.optJSONObject(0), callbackContext);
+        } else if (action.equals("startBackgroundEntryNotificationForRegion")) {
+        	startBackgroundEntryNotificationForRegion(args.optJSONObject(0), callbackContext);
         }
         else {
             return false;
@@ -184,6 +186,10 @@ public class IBeaconPlugin extends CordovaPlugin implements IBeaconConsumer {
 	}
     
     
+    private void startBackgroundEntryNotificationForRegion(JSONObject arguments, CallbackContext callbackContext) {
+    	Log.w(TAG, "'startBackgroundEntryNotificationForRegion' not supported on Android");
+    	callbackContext.error("background entry notification mode not supported on Android");
+    }
     
 
 	private void isAdvertising(JSONObject arguments, CallbackContext callbackContext) {

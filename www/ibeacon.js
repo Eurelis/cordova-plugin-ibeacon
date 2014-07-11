@@ -72,7 +72,7 @@ IBeacon.prototype.validateRegionArray = function (regionArray) {
 IBeacon.prototype.callObjCRuntime = function (actionName, region, beaconCallback, errorCallback, extraArgs) {
     this.validateRegion(region);
     
-    var validActions = ['startMonitoringForRegion', 'stopMonitoringForRegion', 'startRangingBeaconsInRegion', 'stopRangingBeaconsInRegion', 'startAdvertising'];
+    var validActions = ['startMonitoringForRegion', 'stopMonitoringForRegion', 'startRangingBeaconsInRegion', 'stopRangingBeaconsInRegion', 'startAdvertising', 'startBackgroundEntryNotificationForRegion'];
     
     if (validActions.indexOf(actionName) < 0) {
         throw new Error('Invalid operation: ' + actionName + ' Valid ones are: ' + validActions.join(','));
@@ -136,6 +136,13 @@ IBeacon.prototype.stopMonitoringForRegions = function (regions) {
       this.callObjCRuntime('stopMonitoringForRegion', region);
     }
 };
+
+IBeacon.prototype.startBackgroundEntryNotificationForRegion = function(region, message, delay, callback) {
+	this.validateRegion(region);
+	
+	this.callObjCRuntime('startBackgroundEntryNotificationForRegion', region, callback, null, [message, delay]);
+};
+
 
 /**
  * A simple wrapper around {#startRangingBeaconsInRegion()} to make it possible to start ranging

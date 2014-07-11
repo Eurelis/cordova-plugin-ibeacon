@@ -40,6 +40,8 @@
 - (void)startRangingBeaconsInRegion: (CDVInvokedUrlCommand*)command;
 - (void)stopRangingBeaconsInRegion: (CDVInvokedUrlCommand*)command;
 
+- (void)startBackgroundEntryNotificationForRegion:(CDVInvokedUrlCommand*)command;
+
 - (void)isIbeaconAvailable:(CDVInvokedUrlCommand *)command;
 
 - (CLBeaconRegion *) parse :(NSDictionary*) regionArguments;

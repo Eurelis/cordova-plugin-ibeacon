@@ -30,8 +30,6 @@
 
 @implementation CDVIBeacon
     {
-        NSString *monitoringCallbackId;
-        NSString *rangingCallbackId;
         NSString *advertisingCallbackId;
         
         NSString *ibeaconAvailableCallbackId;
@@ -41,6 +39,11 @@
         
         CLLocationManager *_locationManager;
         CBPeripheralManager * _peripheralManager;
+        
+        NSMutableDictionary *_rangedRegionCallbackIdDictionary;
+        NSMutableDictionary *_monitorRegionCallbackIdDictionary;
+        NSMutableDictionary *_monitorRegionInBackgroundCallbackIdDictionary;
+    
     }
     
 # pragma mark CDVPlugin
@@ -49,13 +52,19 @@
     {
         NSLog(@"[IBeacon Plugin] pluginInitialize()");
         
-        _locationManager = [[CLLocationManager alloc] init];
-        _locationManager.delegate = self;
+        if (NSFoundationVersionNumber > NSFoundationVersionNumber_iOS_6_1) {
+            _locationManager = [[CLLocationManager alloc] init];
+            _locationManager.delegate = self;
         
-        _peripheralManager = [[CBPeripheralManager alloc] initWithDelegate:self queue:nil];
-        
+            _peripheralManager = [[CBPeripheralManager alloc] initWithDelegate:self queue:nil];
+            
+            _rangedRegionCallbackIdDictionary = [[NSMutableDictionary alloc] init];
+            _monitorRegionCallbackIdDictionary = [[NSMutableDictionary alloc] init];
+            _monitorRegionInBackgroundCallbackIdDictionary = [[NSMutableDictionary alloc] init];
+        }
         
         [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(pageDidLoad:) name:CDVPageDidLoadNotification object:self.webView];
+        [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(didReceiveLocalNotification:) name:CDVLocalNotification object:nil];
     }
     
 - (void) pageDidLoad: (NSNotification*)notification{
@@ -144,36 +153,87 @@
     
 - (void)locationManager:(CLLocationManager *)manager didDetermineState:(CLRegionState)state forRegion:(CLRegion *)region
 {
+    NSString *monitoringCallbackId = _monitorRegionCallbackIdDictionary[region.identifier];
+
+    NSString *identifier = region.identifier;
+    
     if(state == CLRegionStateInside) {
-        NSLog(@"[IBeacon Plugin] didDetermineState INSIDE for %@", region.identifier);
+        NSLog(@"[IBeacon Plugin] didDetermineState INSIDE for %@", identifier);
     }
     else if(state == CLRegionStateOutside) {
-        NSLog(@"[IBeacon Plugin] didDetermineState OUTSIDE for %@", region.identifier);
+        NSLog(@"[IBeacon Plugin] didDetermineState OUTSIDE for %@", identifier);
     }
     else {
-        NSLog(@"[IBeacon Plugin] didDetermineState OTHER for %@", region.identifier);
+        NSLog(@"[IBeacon Plugin] didDetermineState OTHER for %@", identifier);
     }
     
     NSLog(@"[IBeacon Plugin] Sending plugin callback with callbackId: %@", monitoringCallbackId);
     
-    [self.commandDelegate runInBackground:^{
-        NSMutableDictionary* callbackData = [[NSMutableDictionary alloc]init];
-        
-        [callbackData setObject:[self mapOfRegion:region] forKey:@"region"];
-        [callbackData setObject:[self nameOfRegionState:state] forKey:@"state"];
-        
-        CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:callbackData];
-        [pluginResult setKeepCallbackAsBool:YES];
-        
-        [self.commandDelegate sendPluginResult:pluginResult callbackId:monitoringCallbackId];
-    }];
-}
     
+    
+    if (state == CLRegionStateInside && [identifier hasPrefix:@"Room_"]) {
+        
+        NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+        NSString *roomNumber = [identifier substringFromIndex:5];
+        
+        // doit t'on envoyer une notif locale ?
+        NSString *name = [defaults objectForKey:[NSString stringWithFormat:@"%@_name", identifier]];
+        NSNumber *delay = [defaults objectForKey:[NSString stringWithFormat:@"%@_delay", identifier]];
+        
+        if (name && delay) {
+            // YES, notif locale
+            NSDate *date = [NSDate date];
+            
+            UIApplication *application = [UIApplication sharedApplication];
+            NSString *lastDateKey = [NSString stringWithFormat:@"%@_lastDate", identifier];
+            
+            if (application.applicationState == UIApplicationStateBackground) {
+                
+                NSDate *previousDate = (NSDate *)[defaults objectForKey:lastDateKey];
+                
+                if (!previousDate || [date timeIntervalSinceDate:previousDate] > 30) {
+                    
+                    if ([application applicationState] == UIApplicationStateBackground) {
+                        UILocalNotification *localNotification = [[UILocalNotification alloc] init];
+                        localNotification.alertBody = name;
+                        localNotification.userInfo = @{@"RoomNumber": @([roomNumber intValue]), @"Identifier":identifier};
+                        [application presentLocalNotificationNow:localNotification];
+                    }
+                }
+            }
+            
+            [defaults setObject:date forKey:lastDateKey];
+            
+        }
+        
+    }
+    
+    
+    if (monitoringCallbackId) {
+        [self.commandDelegate runInBackground:^{
+            NSMutableDictionary* callbackData = [[NSMutableDictionary alloc]init];
+        
+            [callbackData setObject:[self mapOfRegion:region] forKey:@"region"];
+            [callbackData setObject:[self nameOfRegionState:state] forKey:@"state"];
+        
+            CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:callbackData];
+            [pluginResult setKeepCallbackAsBool:YES];
+        
+            [self.commandDelegate sendPluginResult:pluginResult callbackId:monitoringCallbackId];
+        }];
+    }
+}
+
 - (void)locationManager:(CLLocationManager *)manager didRangeBeacons:(NSArray *)beacons inRegion:(CLBeaconRegion *)region
 {
+    NSString *rangingCallbackId = _rangedRegionCallbackIdDictionary[region.identifier];
+    if (!rangingCallbackId) {
+        return;
+    }
+    
     NSLog(@"[IBeacon Plugin] didRangeBeacons() Beacons:");
     for (CLBeacon* beacon in beacons) {
-        NSLog(@"[IBeacon Plugin] didRangeBeacons() Description: %@, proximity: %d, proximityUUID: %@, major: %@, minor: %@", beacon.description, beacon.proximity, beacon.proximityUUID, beacon.major, beacon.minor);
+        NSLog(@"[IBeacon Plugin] didRangeBeacons() Description: %@, proximity: %ld, proximityUUID: %@, major: %@, minor: %@", beacon.description, (long)beacon.proximity, beacon.proximityUUID, beacon.major, beacon.minor);
     }
     
     beacons = [beacons sortedArrayUsingComparator:^NSComparisonResult(id obj1, id obj2) {
@@ -212,6 +272,32 @@
         [self.commandDelegate sendPluginResult:pluginResult callbackId:rangingCallbackId];
     }];
 }
+
+#pragma mark -
+
+- (void)didReceiveLocalNotification:(NSNotification *)notification {
+    UILocalNotification *locNotification = (UILocalNotification *)notification.object;
+    
+    NSString *identifier = locNotification.userInfo[@"Identifier"];
+    NSString *callbackId = _monitorRegionInBackgroundCallbackIdDictionary[identifier];
+    
+    if (callbackId) {
+        [self.commandDelegate runInBackground:^{
+            NSMutableDictionary* callbackData = [[NSMutableDictionary alloc]init];
+            
+            [callbackData setObject:locNotification.userInfo[@"RoomNumber"] forKey:@"room"];
+            //[callbackData setObject:[self nameOfRegionState:state] forKey:@"state"];
+            
+            CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:callbackData];
+            [pluginResult setKeepCallbackAsBool:YES];
+            
+            [self.commandDelegate sendPluginResult:pluginResult callbackId:callbackId];
+        }];
+    }
+    
+}
+
+
     
 # pragma mark Exposed Javascript API
 
@@ -273,12 +359,14 @@
     NSLog(@"[IBeacon Plugin] startMonitoringForRegion() %@", command.arguments);
     
     CLBeaconRegion* beaconRegion = [self parse:[command.arguments objectAtIndex: 0]];
-    monitoringCallbackId = command.callbackId;
     
     if (beaconRegion == nil) {
         NSLog(@"Error CLBeaconRegion is null, cannot start monitoring.");
         return;
     }
+    _monitorRegionCallbackIdDictionary[beaconRegion.identifier] = command.callbackId;
+    
+    
     [_locationManager startMonitoringForRegion:beaconRegion];
     
     NSLog(@"[IBeacon Plugin] started monitoring successfully.");
@@ -287,10 +375,14 @@
 - (void)stopMonitoringForRegion: (CDVInvokedUrlCommand*)command {
     NSLog(@"[IBeacon Plugin] stopMonitoringForRegion() %@", command.arguments);
     CLBeaconRegion* beaconRegion = [self parse:[command.arguments objectAtIndex: 0]];
+    
+    
     if (beaconRegion == nil) {
         NSLog(@"Error CLBeaconRegion is null, cannot stop monitoring.");
         return;
     }
+    [_monitorRegionCallbackIdDictionary removeObjectForKey:beaconRegion.identifier];
+    
     [_locationManager stopMonitoringForRegion:beaconRegion];
     NSLog(@"[IBeacon Plugin] stopped monitoring successfully.");
 }
@@ -298,11 +390,13 @@
 - (void)startRangingBeaconsInRegion: (CDVInvokedUrlCommand*)command {
     NSLog(@"[IBeacon Plugin] startRangingBeaconsInRegion() %@", command.arguments);
     CLBeaconRegion* beaconRegion = [self parse:[command.arguments objectAtIndex: 0]];
-    rangingCallbackId = command.callbackId;
+    
     if (beaconRegion == nil) {
         NSLog(@"Error CLBeaconRegion is null, cannot start ranging.");
         return;
     }
+    _rangedRegionCallbackIdDictionary[beaconRegion.identifier] = command.callbackId;
+    
     [_locationManager startRangingBeaconsInRegion:beaconRegion];
     NSLog(@"[IBeacon Plugin] Started ranging successfully.");
 }
@@ -310,12 +404,43 @@
 - (void)stopRangingBeaconsInRegion: (CDVInvokedUrlCommand*)command {
     NSLog(@"[IBeacon Plugin] stopRangingBeaconsInRegion() %@", command.arguments);
     CLBeaconRegion* beaconRegion = [self parse:[command.arguments objectAtIndex: 0]];
+    
     if (beaconRegion == nil) {
         NSLog(@"Error CLBeaconRegion is null, cannot stop ranging.");
         return;
     }
+    [_rangedRegionCallbackIdDictionary removeObjectForKey:beaconRegion.identifier];
+    
     [_locationManager stopRangingBeaconsInRegion:beaconRegion];
     NSLog(@"[IBeacon Plugin] Stopped ranging successfully.");
+}
+
+- (void)startBackgroundEntryNotificationForRegion:(CDVInvokedUrlCommand*)command {
+    NSLog(@"[IBeacon Plugin] startBackgroundEntryNotificationForRegion() %@", command.arguments);
+    CLBeaconRegion* beaconRegion = [self parse:[command.arguments objectAtIndex: 0]];
+    
+    if (beaconRegion == nil) {
+        NSLog(@"Error CLBeaconRegion is null, cannot start background entry notification.");
+        return;
+    }
+    
+    _monitorRegionInBackgroundCallbackIdDictionary[beaconRegion.identifier] = command.callbackId;
+    
+    NSString *name = command.arguments[1];
+    NSNumber *delay = command.arguments[2];
+
+    
+    
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    NSString *identifier = beaconRegion.identifier;
+    
+    [defaults setObject:name forKey:[NSString stringWithFormat:@"%@_name", identifier]];
+    [defaults setObject:delay forKey:[NSString stringWithFormat:@"%@_delay", identifier]];
+    
+    [_locationManager requestStateForRegion:beaconRegion];
+    [_locationManager startMonitoringForRegion:beaconRegion];
+    
+    NSLog(@"[IBeacon Plugin] Started background entry notification successfully.");
 }
 
 - (void)isIbeaconAvailable:(CDVInvokedUrlCommand*)command {
