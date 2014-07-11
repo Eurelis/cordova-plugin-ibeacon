@@ -191,7 +191,7 @@
                 
                 NSDate *previousDate = (NSDate *)[defaults objectForKey:lastDateKey];
                 
-                if (!previousDate || [date timeIntervalSinceDate:previousDate] > 30) {
+                if (!previousDate || [date timeIntervalSinceDate:previousDate] > [delay longValue]) {
                     
                     if ([application applicationState] == UIApplicationStateBackground) {
                         UILocalNotification *localNotification = [[UILocalNotification alloc] init];
