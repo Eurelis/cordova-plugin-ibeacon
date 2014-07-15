@@ -171,10 +171,10 @@
     
     
     
-    if (state == CLRegionStateInside && [identifier hasPrefix:@"Room_"]) {
+    if (state == CLRegionStateInside) {
         
         NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-        NSString *roomNumber = [identifier substringFromIndex:5];
+        
         
         // doit t'on envoyer une notif locale ?
         NSString *name = [defaults objectForKey:[NSString stringWithFormat:@"%@_name", identifier]];
@@ -195,7 +195,7 @@
                     
                     UILocalNotification *localNotification = [[UILocalNotification alloc] init];
                     localNotification.alertBody = name;
-                    localNotification.userInfo = @{@"RoomNumber": @([roomNumber intValue]), @"Identifier":identifier};
+                    localNotification.userInfo = [self mapOfRegion:region];
                     [application presentLocalNotificationNow:localNotification];
                     
                     [defaults setObject:date forKey:lastDateKey];
@@ -279,15 +279,12 @@
 - (void)didReceiveLocalNotification:(NSNotification *)notification {
     UILocalNotification *locNotification = (UILocalNotification *)notification.object;
     
-    NSString *identifier = locNotification.userInfo[@"Identifier"];
+    NSString *identifier = locNotification.userInfo[@"identifier"];
     NSString *callbackId = _monitorRegionInBackgroundCallbackIdDictionary[identifier];
     
     if (callbackId) {
         [self.commandDelegate runInBackground:^{
-            NSMutableDictionary* callbackData = [[NSMutableDictionary alloc]init];
-            
-            [callbackData setObject:locNotification.userInfo[@"RoomNumber"] forKey:@"room"];
-            //[callbackData setObject:[self nameOfRegionState:state] forKey:@"state"];
+            NSMutableDictionary* callbackData = [[NSMutableDictionary alloc] initWithDictionary:locNotification.userInfo];
             
             CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:callbackData];
             [pluginResult setKeepCallbackAsBool:YES];
@@ -302,7 +299,7 @@
     
 # pragma mark Exposed Javascript API
 
-- (void) isAdvertising:(CDVInvokedUrlCommand *)command {
+- (void)isAdvertising:(CDVInvokedUrlCommand *)command {
     NSNumber *isAdvertising = [NSNumber numberWithBool:_peripheralManager.isAdvertising];
     
     [self.commandDelegate runInBackground:^{
@@ -525,6 +522,9 @@
         [dict setObject:region.minor forKey:@"minor"];
     }
     
+    if (region.identifier) {
+        dict[@"identifier"] = region.identifier;
+    }
     
     return dict;
 }
