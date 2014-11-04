@@ -55,23 +55,47 @@
         if (NSFoundationVersionNumber > NSFoundationVersionNumber_iOS_6_1) {
             _locationManager = [[CLLocationManager alloc] init];
             _locationManager.delegate = self;
+            
+            if ([CLLocationManager authorizationStatus] == kCLAuthorizationStatusNotDetermined
+                &&
+                [_locationManager respondsToSelector:@selector(requestAlwaysAuthorization)]
+                ) {
+                // for iOS 8
+                
+                [_locationManager requestAlwaysAuthorization];
+                // always for background region monitoring
+                // DO NOT FORGET TO SET NSLocationAlwaysUsageDescription IN info.plist FILE
+                
+            }
         
             _peripheralManager = [[CBPeripheralManager alloc] initWithDelegate:self queue:nil];
             
             _rangedRegionCallbackIdDictionary = [[NSMutableDictionary alloc] init];
             _monitorRegionCallbackIdDictionary = [[NSMutableDictionary alloc] init];
             _monitorRegionInBackgroundCallbackIdDictionary = [[NSMutableDictionary alloc] init];
+            
+            
+            UIApplication *app = [UIApplication sharedApplication];
+            if ([app respondsToSelector:@selector(registerUserNotificationSettings:)]) {
+                UIUserNotificationSettings *settings = [UIUserNotificationSettings settingsForTypes:UIUserNotificationTypeAlert categories:nil];
+                [app registerUserNotificationSettings:settings];
+            }
+            
+            
         }
         
         [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(pageDidLoad:) name:CDVPageDidLoadNotification object:self.webView];
         [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(didReceiveLocalNotification:) name:CDVLocalNotification object:nil];
+        
+        
+        
     }
     
 - (void) pageDidLoad: (NSNotification*)notification{
     NSLog(@"[IBeacon Plugin] pageDidLoad()");
 }
 
-- (void) onReadyToStartAdvertising {
+- (void)onReadyToStartAdvertising {
     if (_peripheralData == NULL) {
         NSLog(@"[IBeacon Plugin] Can`t start advertising, peripheral data is unavailable.");
         return;
@@ -150,7 +174,36 @@
     
     
 # pragma mark CLLocationManagerDelegate
+
+- (void)locationManager:(CLLocationManager *)manager didChangeAuthorizationStatus:(CLAuthorizationStatus)status {
     
+    if (ibeaconAvailableCallbackId) {
+        
+        NSNumber *isAvailable = @NO;
+        if (NSFoundationVersionNumber > NSFoundationVersionNumber_iOS_6_1) {
+            if (_peripheralManager.state == CBCentralManagerStatePoweredOn) {
+                
+                if ((status == kCLAuthorizationStatusAuthorizedAlways || status == kCLAuthorizationStatusAuthorizedWhenInUse) && [CLLocationManager isRangingAvailable]) {
+                    
+                    isAvailable = @YES;
+                }
+            }
+        }
+        
+        [self.commandDelegate runInBackground:^{
+            NSMutableDictionary* callbackData = [[NSMutableDictionary alloc]init];
+            [callbackData setObject:isAvailable forKey:@"isAvailable"];
+            
+            CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:callbackData];
+            [pluginResult setKeepCallbackAsBool:YES];
+            
+            [self.commandDelegate sendPluginResult:pluginResult callbackId:ibeaconAvailableCallbackId];
+        }];
+        
+    }
+
+}
+
 - (void)locationManager:(CLLocationManager *)manager didDetermineState:(CLRegionState)state forRegion:(CLRegion *)region
 {
     NSString *monitoringCallbackId = _monitorRegionCallbackIdDictionary[region.identifier];
@@ -448,7 +501,14 @@
 	
 	if (NSFoundationVersionNumber > NSFoundationVersionNumber_iOS_6_1) {
 		if (_peripheralManager.state == CBCentralManagerStatePoweredOn) {
-			isAvailable = [NSNumber numberWithBool:[CLLocationManager isRangingAvailable]];
+            BOOL rangingAvailable = [CLLocationManager isRangingAvailable];
+            
+            CLAuthorizationStatus authorizationStatus = [CLLocationManager authorizationStatus];
+            BOOL authorized = (authorizationStatus == kCLAuthorizationStatusAuthorizedAlways) || (authorizationStatus == kCLAuthorizationStatusAuthorizedWhenInUse);
+            
+			isAvailable = [NSNumber numberWithBool:(rangingAvailable && authorized)];
+            
+            
 		}
 	}
 	
