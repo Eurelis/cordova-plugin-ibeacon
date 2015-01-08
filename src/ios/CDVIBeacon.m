@@ -114,31 +114,34 @@
     NSString *stateName = [self nameOfPeripherialState:peripheral.state];
     NSLog(@"[IBeacon Plugin] peripheralManagerDidUpdateState() state: %@", stateName);
     
-    if (peripheral.state != CBPeripheralManagerStatePoweredOn) {
-        return;
-    }
-    [self onReadyToStartAdvertising];
-    
     
     if (ibeaconAvailableCallbackId) {
-    // si on connait le callback on vérifie l'état
-    	NSNumber *isAvailable = @NO;
-    	if (NSFoundationVersionNumber > NSFoundationVersionNumber_iOS_6_1) {
-			if (_peripheralManager.state == CBCentralManagerStatePoweredOn) {
-				isAvailable = [NSNumber numberWithBool:[CLLocationManager isRangingAvailable]];
-			}
-		}
-	
-    	[self.commandDelegate runInBackground:^{
-        	NSMutableDictionary* callbackData = [[NSMutableDictionary alloc]init];
-        	[callbackData setObject:isAvailable forKey:@"isAvailable"];
+        // si on connait le callback on vérifie l'état
+        NSNumber *isAvailable = @NO;
+        if (NSFoundationVersionNumber > NSFoundationVersionNumber_iOS_6_1) {
+            if (_peripheralManager.state == CBCentralManagerStatePoweredOn) {
+                isAvailable = [NSNumber numberWithBool:[CLLocationManager isRangingAvailable]];
+            }
+        }
         
-        	CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:callbackData];
-        	[pluginResult setKeepCallbackAsBool:YES];
-        
-        	[self.commandDelegate sendPluginResult:pluginResult callbackId:ibeaconAvailableCallbackId];
-    	}];
+        [self.commandDelegate runInBackground:^{
+            NSMutableDictionary* callbackData = [[NSMutableDictionary alloc]init];
+            [callbackData setObject:isAvailable forKey:@"isAvailable"];
+            
+            CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:callbackData];
+            [pluginResult setKeepCallbackAsBool:YES];
+            
+            [self.commandDelegate sendPluginResult:pluginResult callbackId:ibeaconAvailableCallbackId];
+        }];
     }
+    
+    if (peripheral.state == CBPeripheralManagerStatePoweredOn) {
+        [self onReadyToStartAdvertising];
+    }
+    
+    
+    
+    
 }
 
 - (void)peripheralManagerDidStartAdvertising:(CBPeripheralManager *)peripheral error:(NSError *)error{
